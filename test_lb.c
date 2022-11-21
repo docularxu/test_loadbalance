@@ -1,10 +1,20 @@
 #include <stdio.h>
+#include <unistd.h>
 #include <openssl/provider.h>
 #include <openssl/evp.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
 
-// #define COMPARE_WITH_DEFAULT 1
+/* whether to compare with the default provider */
+/*
+ * #define COMPARE_WITH_DEFAULT
+ */
+
+/* whether to load from config file */
+/*
+ * #define LOAD_FROM_CONF_FILE
+ */
+
 #define PRINT_PREFIX "****** "
 
 /*
@@ -87,7 +97,7 @@ err:
 
 int main(void)
 {
-    OSSL_LIB_CTX *lb_libctx = NULL;
+    OSSL_LIB_CTX *parent_libctx = NULL;
     OSSL_PROVIDER *lbprov = NULL;
     OSSL_PROVIDER *deflt = NULL;
     int ret = 1;
@@ -109,31 +119,31 @@ int main(void)
     /*
      * Create load-balancing library contexts
      */
-    lb_libctx = OSSL_LIB_CTX_new();
-    if (lb_libctx == NULL)
+    parent_libctx = OSSL_LIB_CTX_new();
+    if (parent_libctx == NULL)
         goto err;
 
-#if 1   /* load from config file */
+#ifdef LOAD_FROM_CONF_FILE   /* load from config file */
     /*
      * Load config file for the load-balancing library context. We assume that
      * this config file will automatically activate the load-balancing
      * provider and the default provider.
      */
-    if (!OSSL_LIB_CTX_load_config(lb_libctx, "openssl-loadbalancing.cnf"))
+    if (!OSSL_LIB_CTX_load_config(parent_libctx, "openssl-loadbalancing.cnf"))
         goto err;
     printf(PRINT_PREFIX \
            "Succeeded to load loadbalance and default providers by config file\n");
 #else    /* load explicitly */
-    lbprov = OSSL_PROVIDER_load(lb_libctx, "loadbalance");
+    lbprov = OSSL_PROVIDER_load(parent_libctx, "loadbalance");
     if (lbprov == NULL) {
         printf(PRINT_PREFIX "Failed to load loadbalance provider\n");
         goto err;
     }
     printf(PRINT_PREFIX "Succeeded to load loadbalance provider, %p\n", (void *)lbprov);
 
-    deflt = OSSL_PROVIDER_load(lb_libctx, "default");
+    deflt = OSSL_PROVIDER_load(parent_libctx, "default");
     if (deflt == NULL) {
-        printf(PRINT_PREFIX "Failed to load Default provider into lb_libctx\n");
+        printf(PRINT_PREFIX "Failed to load Default provider into parent_libctx\n");
         goto err;
     }
     printf(PRINT_PREFIX "Succeeded to load default provider, %p\n", (void *)deflt);
@@ -143,25 +153,27 @@ int main(void)
 
     /*
      * Calculate MD5 for doing the digest. We're
-     * using the "lb_libctx" library context here.
+     * using the "parent_libctx" library context here.
      */
-    if (calc_md5(lb_libctx, "provider=loadbalance") != 0) {
-        printf(PRINT_PREFIX "Failed to calculate MD5 using the lb_libctx provider\n");
+    if (calc_md5(parent_libctx, "provider=loadbalance") != 0) {
+        printf(PRINT_PREFIX "Round 1: Failed to calculate MD5 using the parent_libctx provider\n");
+        goto err;
+    }
+    if (calc_md5(parent_libctx, "provider=loadbalance") != 0) {
+        printf(PRINT_PREFIX "Round 2: Failed to calculate MD5 using the parent_libctx provider\n");
         goto err;
     }
     ret = 0;
 
 err:
-    /* Clean up all the resources we allocated */
-    OSSL_LIB_CTX_free(lb_libctx);
 #ifdef COMPARE_WITH_DEFAULT
     OSSL_PROVIDER_unload(deflt2);
 #endif
     OSSL_PROVIDER_unload(lbprov);
     OSSL_PROVIDER_unload(deflt);
+    /* Clean up all the resources we allocated */
+    OSSL_LIB_CTX_free(parent_libctx);
     if (ret != 0)
        ERR_print_errors_fp(stderr);
     return ret;
 }
-
-
