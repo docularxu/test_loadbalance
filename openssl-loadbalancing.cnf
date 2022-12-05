@@ -15,11 +15,16 @@ alg_section = evp_properties
 [providers]
 loadbalance = loadbalance_conf
 default = default_conf
+libmd5mbprov = libmd5mbprov_conf
 
 [loadbalance_conf]
 activate = yes
 
 [default_conf]
+activate = yes
+
+[libmd5mbprov_conf]
+module  = /home/ubuntu/md5_mb_prov.git/build/src/libmd5mbprov.so
 activate = yes
 
 [evp_properties]

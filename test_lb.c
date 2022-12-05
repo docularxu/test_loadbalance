@@ -10,12 +10,18 @@
  * #define COMPARE_WITH_DEFAULT
  */
 
+/* whether to compare with the md5_mb provider */
+/*
+ * #define COMPARE_WITH_MD5_MB
+ */
+
 /* whether to load from config file */
 /*
  * #define LOAD_FROM_CONF_FILE
  */
 
 #define PRINT_PREFIX "****** "
+#define COUNT_REPETITION (10*1)
 
 /*
  * return:
@@ -100,6 +106,7 @@ int main(void)
     OSSL_LIB_CTX *parent_libctx = NULL;
     OSSL_PROVIDER *lbprov = NULL;
     OSSL_PROVIDER *deflt = NULL;
+    OSSL_PROVIDER *provmb = NULL;
     int ret = 1;
 
 #ifdef COMPARE_WITH_DEFAULT
@@ -115,6 +122,21 @@ int main(void)
         goto err;
     }
 #endif
+
+#ifdef COMPARE_WITH_MD5_MB
+    OSSL_PROVIDER *md5_mb_prov;
+    md5_mb_prov = OSSL_PROVIDER_load(NULL, "libmd5mbprov");     /* libmd5mbprov.so */
+    if (md5_mb_prov == NULL) {
+        printf(PRINT_PREFIX "Failed to load md5 multi-buffer provider\n");
+        goto err;
+    }
+
+    if (calc_md5(NULL, "provider=md5mb") != 0) {
+        printf(PRINT_PREFIX "Failed to calculate MD5 using the multi-buffer provider\n");
+        goto err;
+    }
+    OSSL_PROVIDER_unload(md5_mb_prov);
+#else /* COMPARE_WITH_MD5_MB */
 
     /*
      * Create load-balancing library contexts
@@ -147,6 +169,13 @@ int main(void)
         goto err;
     }
     printf(PRINT_PREFIX "Succeeded to load default provider, %p\n", (void *)deflt);
+
+    provmb = OSSL_PROVIDER_load(parent_libctx, "libmd5mbprov");
+    if (provmb == NULL) {
+        printf(PRINT_PREFIX "Failed to load libmd5mbprov provider into parent_libctx\n");
+        goto err;
+    }
+    printf(PRINT_PREFIX "Succeeded to load libmd5mbprov provider, %p\n", (void *)provmb);
 #endif
 
     /* As an example get some digests */
@@ -155,15 +184,16 @@ int main(void)
      * Calculate MD5 for doing the digest. We're
      * using the "parent_libctx" library context here.
      */
-    if (calc_md5(parent_libctx, "provider=loadbalance") != 0) {
-        printf(PRINT_PREFIX "Round 1: Failed to calculate MD5 using the parent_libctx provider\n");
-        goto err;
-    }
-    if (calc_md5(parent_libctx, "provider=loadbalance") != 0) {
-        printf(PRINT_PREFIX "Round 2: Failed to calculate MD5 using the parent_libctx provider\n");
-        goto err;
+    for (int i = 0; i  < COUNT_REPETITION; i++) {
+        printf(PRINT_PREFIX "Round %d\n", i);
+        if (calc_md5(parent_libctx, "provider=loadbalance") != 0) {
+            printf(PRINT_PREFIX "Round %d: Failed to calculate MD5 using the parent_libctx provider\n", i);
+            goto err;
+        }
     }
     ret = 0;
+
+#endif /* !defined COMPARE_WITH_MD5_MB */
 
 err:
 #ifdef COMPARE_WITH_DEFAULT
@@ -171,9 +201,13 @@ err:
 #endif
     OSSL_PROVIDER_unload(lbprov);
     OSSL_PROVIDER_unload(deflt);
+    OSSL_PROVIDER_unload(provmb);
+    printf(PRINT_PREFIX "after unload provmb\n");
     /* Clean up all the resources we allocated */
     OSSL_LIB_CTX_free(parent_libctx);
+    printf(PRINT_PREFIX "after free parent_libctx\n");
     if (ret != 0)
        ERR_print_errors_fp(stderr);
+
     return ret;
 }

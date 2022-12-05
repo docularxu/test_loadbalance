@@ -16,4 +16,5 @@ MESSAGE("OPENSSL_INCLUDE_DIR=${OPENSSL_INCLUDE_DIR}")
 add_executable(test_lbprov test_lb.c)
 target_include_directories(test_lbprov PUBLIC ${OPENSSL_INCLUDE_DIR})
 target_link_libraries(test_lbprov
-  PRIVATE ${OPENSSL_CRYPTO_LIBRARIES})
+  PRIVATE ${OPENSSL_CRYPTO_LIBRARIES}
+	  )
