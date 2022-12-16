@@ -137,7 +137,7 @@ static int calc_md5(OSSL_LIB_CTX *libctx, char *prop)
         goto err;
     }
 
-    printf(PRINT_PREFIX "Success EVP_MD_fetch MD5 from libctx\n");
+    printf(PRINT_PREFIX "Success EVP_MD_fetch MD5 from libctx %p\n", libctx);
 
     /* Use the digests */
 
@@ -154,6 +154,13 @@ static int calc_md5(OSSL_LIB_CTX *libctx, char *prop)
         goto err;
     }
 
+    /* to print md name */
+    printf(PRINT_PREFIX "Using implementation name: %s, description: %s\n",
+           EVP_MD_get0_name(EVP_MD_CTX_get0_md(ctx)),
+           EVP_MD_get0_description(EVP_MD_CTX_get0_md(ctx)));
+    /* Print the size of md result */
+    printf(PRINT_PREFIX "EVP_MD_get_size()=%d\n", EVP_MD_get_size(EVP_MD_CTX_get0_md(ctx)));
+
     /*
      * Pass the message to be digested. This can be passed in over multiple
      * EVP_DigestUpdate calls if necessary
@@ -164,7 +171,6 @@ static int calc_md5(OSSL_LIB_CTX *libctx, char *prop)
     }
 
     /* Allocate the output buffer */
-    printf(PRINT_PREFIX "EVP_MD_get_size()=%d\n", EVP_MD_get_size(EVP_MD_CTX_get0_md(ctx)));
     outdigest = OPENSSL_malloc(EVP_MD_get_size(EVP_MD_CTX_get0_md(ctx)));
     /* NOTE: cannot use md5, because the real method is fetched is modified by EVP_DigestInit_ex(ctx) */
     if (outdigest == NULL) {
@@ -236,6 +242,8 @@ int main(void)
     parent_libctx = OSSL_LIB_CTX_new();
     if (parent_libctx == NULL)
         goto err;
+    printf(PRINT_PREFIX \
+           "parent_libctx = %p\n", parent_libctx);
 
 #ifdef LOAD_FROM_CONF_FILE   /* load from config file */
     /*
