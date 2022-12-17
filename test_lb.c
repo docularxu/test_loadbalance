@@ -74,11 +74,12 @@ static int calc_md5_ctx_reset(OSSL_LIB_CTX *libctx, char *prop, int loop)
             printf(PRINT_PREFIX "Err 3\n");
             goto err;
         }
-
+#if 0
         if ((i % 3) == 0) {
             printf(PRINT_PREFIX PRINT_PREFIX "Transit from DigestUpdate -> DigestInit\n");
             continue;
         }
+#endif
 
         /* Allocate the output buffer */
         outdigest = OPENSSL_malloc(EVP_MD_get_size(EVP_MD_CTX_get0_md(ctx)));
