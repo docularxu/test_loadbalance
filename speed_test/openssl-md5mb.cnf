@@ -1,0 +1,26 @@
+# Configuration OpenSSL for load-balancing provider
+#
+# Format of this file please refer to:
+#     https://www.openssl.org/docs/man3.0/man5/config.html
+#
+
+# These must be in the default section
+config_diagnostics = 1
+openssl_conf = openssl_init
+
+[openssl_init]
+providers = providers
+
+# list 'default' after 'libmd5mbprov', 
+# to make sure MD5 of libmd5mbprov be fetched first
+# 'default' is needed for openssl speed to generate report
+[providers]
+libmd5mbprov = libmd5mbprov_conf
+default = default_conf
+
+[default_conf]
+activate = yes
+
+[libmd5mbprov_conf]
+module  = /home/ubuntu/md5_mb_prov.git/build/src/libmd5mbprov.so
+activate = yes

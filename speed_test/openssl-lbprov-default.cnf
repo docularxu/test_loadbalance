@@ -1,0 +1,22 @@
+# Configuration OpenSSL for load-balancing provider
+#
+# Format of this file please refer to:
+#     https://www.openssl.org/docs/man3.0/man5/config.html
+#
+
+# These must be in the default section
+config_diagnostics = 1
+openssl_conf = openssl_init
+
+[openssl_init]
+providers = providers
+
+[providers]
+loadbalance = loadbalance_conf
+default = default_conf
+
+[loadbalance_conf]
+activate = yes
+
+[default_conf]
+activate = yes
