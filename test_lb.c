@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <unistd.h>
+#include <pthread.h>
 #include <openssl/provider.h>
 #include <openssl/evp.h>
 #include <openssl/bio.h>
@@ -20,11 +21,20 @@
  * #define LOAD_FROM_CONF_FILE
  */
 
+/* Test case selection:
+ *  - #undef to disable the related test cases
+ *  - #define to enable the related test cases
+ */
+#define MULTI_THREAD_TEST
+#define CTX_LIFE_CYCLE_TEST
+
 #define DEBUG_PRINT printf
+#define ERROR_PRINT printf
 #define PRINT_PREFIX "****** "
 
 #define COUNT_REPETITION (10*1)
 #define COUNT_CTX_RESET_LOOPS (10000)     /* inner loop counts of ctx reset test*/
+
 /* calc_md5_ctx_reset - test MD_CTX cycle with EVP_MD_CTX_reset
  * return:
  *   1, failed
@@ -201,6 +211,69 @@ err:
     return ret;
 }
 
+/****************************************************************************
+ *
+ *  multi-thread test
+ *
+ ****************************************************************************/
+#define COUNT_THREADS (100)
+
+typedef struct thread_params {
+    OSSL_LIB_CTX *libctx;
+    int serial_num;
+} THREAD_PARAMS_ST;
+
+static pthread_t thread_ids[COUNT_THREADS];
+static THREAD_PARAMS_ST tparams[COUNT_THREADS];
+
+/* thread_entry_func - entry function of a thread
+ */
+static void *thread_entry_func(void *args)
+{
+    THREAD_PARAMS_ST *this_param = args;
+    OSSL_LIB_CTX *libctx;
+
+    libctx = this_param->libctx;
+    if (calc_md5_ctx_reset(libctx, "provider=loadbalance",
+                           this_param->serial_num) != 0) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed in Thread %d!\n", this_param->serial_num);
+    }
+    return NULL;
+}
+
+/* multi_thread_test_main - entry of multiple threads test case
+ *
+ * return:
+ *   1, failed
+ *   0, success
+ */
+static int multi_thread_test_main(OSSL_LIB_CTX *libctx)
+{
+    int i, j;
+    int ret;
+
+    /* thread start */
+    for (i = 0; i < COUNT_THREADS; i ++) {
+        tparams[i].libctx = libctx;
+        tparams[i].serial_num = i;
+        ret = pthread_create(&thread_ids[i], NULL,
+                             &thread_entry_func, (void *)&tparams[i]);
+        if (ret != 0) {
+            ERROR_PRINT("Thread %d creation failed!\n", i);
+            break;
+        }
+    }
+
+    /* thread join */
+    for (j = 0; j < i; j++) {
+        pthread_join(thread_ids[j], NULL);
+        DEBUG_PRINT("Thread %d joined\n", j);
+    }
+    /* return */
+    return ret;
+}
+
+/* main function */
 int main(void)
 {
     OSSL_LIB_CTX *parent_libctx = NULL;
@@ -286,18 +359,25 @@ int main(void)
      * Calculate MD5 for doing the digest. We're
      * using the "parent_libctx" library context here.
      */
+#if defined(MULTI_THREAD_TEST)
+    ret = multi_thread_test_main(parent_libctx);
+    goto err;
+#else /* !defined(MULTI_THREAD_TEST) */
+
     for (int i = 0; i  < COUNT_REPETITION; i++) {
         DEBUG_PRINT(PRINT_PREFIX "Round %d\n", i);
-#if 0
-        if (calc_md5(parent_libctx, "provider=loadbalance") != 0) {
-#else
-        if (calc_md5_ctx_reset(parent_libctx, "provider=loadbalance", i) != 0) {
+#if !defined(CTX_LIFE_CYCLE_TEST)
+        if (calc_md5(parent_libctx, "provider=loadbalance") != 0)
+#else /* defined(CTX_LIFE_CYCLE_TEST) */
+        if (calc_md5_ctx_reset(parent_libctx, "provider=loadbalance", i) != 0)
 #endif
+	    {
             DEBUG_PRINT(PRINT_PREFIX "Round %d: Failed to calculate MD5 using the parent_libctx provider\n", i);
             goto err;
         }
     }
     ret = 0;
+#endif
 
 #endif /* !defined COMPARE_WITH_MD5_MB */
 
