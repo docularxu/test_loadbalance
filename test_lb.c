@@ -5,6 +5,7 @@
 #include <openssl/evp.h>
 #include <openssl/bio.h>
 #include <openssl/err.h>
+#include "test_lb.h"
 
 /* whether to compare with the default provider */
 /*
@@ -18,22 +19,25 @@
 
 /* whether to load from config file */
 /*
- * #define LOAD_FROM_CONF_FILE
  */
+#define LOAD_FROM_CONF_FILE
 
 /* Test case selection:
  *  - #undef to disable the related test cases
  *  - #define to enable the related test cases
  */
 #define MULTI_THREAD_TEST
-#define CTX_LIFE_CYCLE_TEST
+// #define CTX_LIFE_CYCLE_TEST
 
-#define DEBUG_PRINT printf
+// #define DEBUG_PRINT printf
+#define DEBUG_PRINT
 #define ERROR_PRINT printf
 #define PRINT_PREFIX "****** "
 
-#define COUNT_REPETITION (10*1)
-#define COUNT_CTX_RESET_LOOPS (10000)     /* inner loop counts of ctx reset test*/
+#define COUNT_REPETITION (10*1)         /* default TEST, and the outer loop of CTX_LIFE_CYCLE_TEST */
+#define COUNT_CTX_RESET_LOOPS (100000)  /* inner loop counts of CTX_LIFE_CYCLE_TEST and MULTI_THREAD_TEST */
+#define COUNT_THREADS (1000)            /* number of parallel threads for MULTI_THREAD_TEST */
+#define MESG_LENGTH (1024)              /* message text length, for CTX_LIFE_CYCLE_TEST and MULTI_THREAD_TEST */
 
 /* calc_md5_ctx_reset - test MD_CTX cycle with EVP_MD_CTX_reset
  * return:
@@ -44,11 +48,11 @@ static int calc_md5_ctx_reset(OSSL_LIB_CTX *libctx, char *prop, int loop)
 {
     EVP_MD_CTX *ctx = NULL;
     EVP_MD *md5 = NULL;
-    const unsigned char msg[] = {
+    const unsigned char msg[MESG_LENGTH] = {
         0x00, 0x01, 0x02, 0x03
     };
     unsigned int len = 0;
-    unsigned char *outdigest = NULL;
+    unsigned char outdigest[16];
     int ret = 1;
 
     md5 = EVP_MD_fetch(libctx, "MD5", prop);
@@ -92,21 +96,10 @@ static int calc_md5_ctx_reset(OSSL_LIB_CTX *libctx, char *prop, int loop)
         }
 #endif
 
-        /* Allocate the output buffer */
-        outdigest = OPENSSL_malloc(EVP_MD_get_size(EVP_MD_CTX_get0_md(ctx)));
-        if (outdigest == NULL) {
-            DEBUG_PRINT(PRINT_PREFIX "Err 4\n");
-            goto err;
-        }
-
         if (!EVP_DigestFinal_ex(ctx, outdigest, &len)) {
             DEBUG_PRINT(PRINT_PREFIX "Err 5\n");
             goto err;
         }
-
-        /* Print out the digest result */
-        BIO_dump_fp(stdout, outdigest, len);
-        OPENSSL_free(outdigest);
 
         if ((i % 3) == 1) {
             DEBUG_PRINT(PRINT_PREFIX PRINT_PREFIX "Transit from DigestFinal -> DigestInit\n");
@@ -216,7 +209,6 @@ err:
  *  multi-thread test
  *
  ****************************************************************************/
-#define COUNT_THREADS (100)
 
 typedef struct thread_params {
     OSSL_LIB_CTX *libctx;
@@ -251,6 +243,10 @@ static int multi_thread_test_main(OSSL_LIB_CTX *libctx)
 {
     int i, j;
     int ret;
+    struct perf start, stop;            /* this implementation */
+
+    /* perf start */
+    perf_start(&start);
 
     /* thread start */
     for (i = 0; i < COUNT_THREADS; i ++) {
@@ -269,6 +265,14 @@ static int multi_thread_test_main(OSSL_LIB_CTX *libctx)
         pthread_join(thread_ids[j], NULL);
         DEBUG_PRINT("Thread %d joined\n", j);
     }
+
+    /* perf stop */
+    perf_stop(&stop);
+
+    /* print performance: bandwidth */
+    perf_print(stop, start,
+               (long long) MESG_LENGTH * COUNT_CTX_RESET_LOOPS * COUNT_THREADS);
+
     /* return */
     return ret;
 }
@@ -351,7 +355,7 @@ int main(void)
         goto err;
     }
     DEBUG_PRINT(PRINT_PREFIX "Succeeded to load libmd5mbprov provider, %p\n", (void *)provmb);
-#endif
+#endif   /* end of load explicitly */
 
     /* As an example get some digests */
 
