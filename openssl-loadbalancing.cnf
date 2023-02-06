@@ -10,22 +10,28 @@ openssl_conf = openssl_init
 
 [openssl_init]
 providers = providers
-alg_section = evp_properties
+# alg_section = evp_properties
 
 [providers]
-loadbalance = loadbalance_conf
 default = default_conf
-libmd5mbprov = libmd5mbprov_conf
+loadbalance = loadbalance_conf
+ibmd5mbprov = libmd5mbprov_conf
+
+# #define LB_STRATEGY_ROUND_ROBIN         1
+# #define LB_STRATEGY_PRIORITY            2
+# #define LB_STRATEGY_FREE_BANDWIDTH      3
+# #define LB_STRATEGY_PACKET_SIZE         4
 
 [loadbalance_conf]
 activate = yes
+lb-strategy = 1
 
 [default_conf]
 activate = yes
 
 [libmd5mbprov_conf]
-module  = /home/ubuntu/md5_mb_prov.git/build/src/libmd5mbprov.so
+module  = /docker-volume/md5_mb_provider.git/build/src/libmd5mbprov.so
 activate = yes
 
-[evp_properties]
-default_properties = provider=loadbalance
+# [evp_properties]
+# default_properties = provider=loadbalance

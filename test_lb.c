@@ -226,7 +226,12 @@ static void *thread_entry_func(void *args)
     OSSL_LIB_CTX *libctx;
 
     libctx = this_param->libctx;
-    if (calc_md5_ctx_reset(libctx, "provider=loadbalance",
+    if (calc_md5_ctx_reset(libctx,
+			   /*
+			    * ? is a prefix operator that means that the following
+			    * clause is optional but preferred.
+			    */
+			   "?provider=loadbalance",
                            this_param->serial_num) != 0) {
         DEBUG_PRINT(PRINT_PREFIX "Failed in Thread %d!\n", this_param->serial_num);
     }
@@ -263,7 +268,7 @@ static int multi_thread_test_main(OSSL_LIB_CTX *libctx)
     /* thread join */
     for (j = 0; j < i; j++) {
         pthread_join(thread_ids[j], NULL);
-        DEBUG_PRINT("Thread %d joined\n", j);
+        DEBUG_PRINT(PRINT_PREFIX "Thread %d joined\n", j);
     }
 
     /* perf stop */
