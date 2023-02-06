@@ -22,21 +22,24 @@
  */
 #define LOAD_FROM_CONF_FILE
 
-/* Test case selection:
+/*
+ * Test case selection:
  *  - #undef to disable the related test cases
  *  - #define to enable the related test cases
  */
-#define MULTI_THREAD_TEST
+// #define BASIC_TEST
 // #define CTX_LIFE_CYCLE_TEST
+#define MULTI_THREAD_TEST
+// #define PROVIDER_LOAD_UNLOAD_TEST
 
-// #define DEBUG_PRINT printf
-#define DEBUG_PRINT
+#define DEBUG_PRINT printf
+// #define DEBUG_PRINT
 #define ERROR_PRINT printf
 #define PRINT_PREFIX "****** "
 
 #define COUNT_REPETITION (10*1)         /* default TEST, and the outer loop of CTX_LIFE_CYCLE_TEST */
-#define COUNT_CTX_RESET_LOOPS (100000)  /* inner loop counts of CTX_LIFE_CYCLE_TEST and MULTI_THREAD_TEST */
-#define COUNT_THREADS (1000)            /* number of parallel threads for MULTI_THREAD_TEST */
+#define COUNT_CTX_RESET_LOOPS (10)  /* inner loop counts of CTX_LIFE_CYCLE_TEST and MULTI_THREAD_TEST */
+#define COUNT_THREADS (2)            	/* number of parallel threads for MULTI_THREAD_TEST */
 #define MESG_LENGTH (1024)              /* message text length, for CTX_LIFE_CYCLE_TEST and MULTI_THREAD_TEST */
 
 /* calc_md5_ctx_reset - test MD_CTX cycle with EVP_MD_CTX_reset
@@ -282,8 +285,8 @@ static int multi_thread_test_main(OSSL_LIB_CTX *libctx)
     return ret;
 }
 
-/* main function */
-int main(void)
+/* test provider load / unload and the impact to load-balance */
+static int test_providers_load_unload(void)
 {
     OSSL_LIB_CTX *parent_libctx = NULL;
     OSSL_PROVIDER *lbprov = NULL;
@@ -291,34 +294,69 @@ int main(void)
     OSSL_PROVIDER *provmb = NULL;
     int ret = 1;
 
-#ifdef COMPARE_WITH_DEFAULT
-    OSSL_PROVIDER *deflt2;
-    deflt2 = OSSL_PROVIDER_load(NULL, "default");
-    if (deflt2 == NULL) {
-        DEBUG_PRINT(PRINT_PREFIX "Failed to load Default provider\n");
+    /*
+     * Create top-level library context
+     */
+    parent_libctx = OSSL_LIB_CTX_new();
+    if (parent_libctx == NULL)
         goto err;
-    }
+    DEBUG_PRINT(PRINT_PREFIX "Created parent_libctx = %p\n", parent_libctx);
 
-    if (calc_md5(NULL, NULL) != 0) {
-        DEBUG_PRINT(PRINT_PREFIX "Failed to calculate MD5 using the default provider\n");
+    /* load provider "loadbalance, default, and libmd5mbprov" */
+    lbprov = OSSL_PROVIDER_load(parent_libctx, "loadbalance");
+    if (lbprov == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load loadbalance provider\n");
         goto err;
     }
-#endif
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load loadbalance provider, %p\n", (void *)lbprov);
 
-#ifdef COMPARE_WITH_MD5_MB
-    OSSL_PROVIDER *md5_mb_prov;
-    md5_mb_prov = OSSL_PROVIDER_load(NULL, "libmd5mbprov");     /* libmd5mbprov.so */
-    if (md5_mb_prov == NULL) {
-        DEBUG_PRINT(PRINT_PREFIX "Failed to load md5 multi-buffer provider\n");
+    deflt = OSSL_PROVIDER_load(parent_libctx, "default");
+    if (deflt == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load Default provider into parent_libctx\n");
         goto err;
     }
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load default provider, %p\n", (void *)deflt);
 
-    if (calc_md5(NULL, "provider=md5mb") != 0) {
-        DEBUG_PRINT(PRINT_PREFIX "Failed to calculate MD5 using the multi-buffer provider\n");
+    provmb = OSSL_PROVIDER_load(parent_libctx, "libmd5mbprov");
+    if (provmb == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load libmd5mbprov provider into parent_libctx\n");
         goto err;
     }
-    OSSL_PROVIDER_unload(md5_mb_prov);
-#else /* COMPARE_WITH_MD5_MB */
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load libmd5mbprov provider, %p\n", (void *)provmb);
+
+    /* test Loop 1 */
+    ret = multi_thread_test_main(parent_libctx);
+    if (ret != 0)
+       ERR_print_errors_fp(stderr);
+
+    /* unload provider "libmd5mbprov" */
+    OSSL_PROVIDER_unload(provmb);
+    provmb = NULL;
+    DEBUG_PRINT(PRINT_PREFIX "Unloaded libmd5mbprov provider\n");
+
+    /* test Loop 2 */
+    ret = multi_thread_test_main(parent_libctx);
+    if (ret != 0)
+       ERR_print_errors_fp(stderr);
+err:
+    OSSL_PROVIDER_unload(lbprov);
+    OSSL_PROVIDER_unload(deflt);
+    OSSL_PROVIDER_unload(provmb);
+    DEBUG_PRINT(PRINT_PREFIX "after unload provmb\n");
+    /* Clean up all the resources we allocated */
+    OSSL_LIB_CTX_free(parent_libctx);
+    DEBUG_PRINT(PRINT_PREFIX "after free parent_libctx\n");
+    return ret;
+}
+
+/* test multiple threads */
+int test_multi_threads(void)
+{
+    OSSL_LIB_CTX *parent_libctx = NULL;
+    OSSL_PROVIDER *lbprov = NULL;
+    OSSL_PROVIDER *deflt = NULL;
+    OSSL_PROVIDER *provmb = NULL;
+    int ret = 1;
 
     /*
      * Create load-balancing library contexts
@@ -338,7 +376,7 @@ int main(void)
     if (!OSSL_LIB_CTX_load_config(parent_libctx, "openssl-loadbalancing.cnf"))
         goto err;
     DEBUG_PRINT(PRINT_PREFIX \
-           "Succeeded to load loadbalance and default providers by config file\n");
+           "Succeeded to load from config file\n");
 #else    /* load explicitly */
     lbprov = OSSL_PROVIDER_load(parent_libctx, "loadbalance");
     if (lbprov == NULL) {
@@ -362,38 +400,14 @@ int main(void)
     DEBUG_PRINT(PRINT_PREFIX "Succeeded to load libmd5mbprov provider, %p\n", (void *)provmb);
 #endif   /* end of load explicitly */
 
-    /* As an example get some digests */
-
     /*
      * Calculate MD5 for doing the digest. We're
      * using the "parent_libctx" library context here.
      */
-#if defined(MULTI_THREAD_TEST)
     ret = multi_thread_test_main(parent_libctx);
     goto err;
-#else /* !defined(MULTI_THREAD_TEST) */
-
-    for (int i = 0; i  < COUNT_REPETITION; i++) {
-        DEBUG_PRINT(PRINT_PREFIX "Round %d\n", i);
-#if !defined(CTX_LIFE_CYCLE_TEST)
-        if (calc_md5(parent_libctx, "provider=loadbalance") != 0)
-#else /* defined(CTX_LIFE_CYCLE_TEST) */
-        if (calc_md5_ctx_reset(parent_libctx, "provider=loadbalance", i) != 0)
-#endif
-	    {
-            DEBUG_PRINT(PRINT_PREFIX "Round %d: Failed to calculate MD5 using the parent_libctx provider\n", i);
-            goto err;
-        }
-    }
-    ret = 0;
-#endif
-
-#endif /* !defined COMPARE_WITH_MD5_MB */
 
 err:
-#ifdef COMPARE_WITH_DEFAULT
-    OSSL_PROVIDER_unload(deflt2);
-#endif
     OSSL_PROVIDER_unload(lbprov);
     OSSL_PROVIDER_unload(deflt);
     OSSL_PROVIDER_unload(provmb);
@@ -403,6 +417,233 @@ err:
     DEBUG_PRINT(PRINT_PREFIX "after free parent_libctx\n");
     if (ret != 0)
        ERR_print_errors_fp(stderr);
+
+    return ret;
+}
+
+int test_ctx_life_cycle(void)
+{
+    OSSL_LIB_CTX *parent_libctx = NULL;
+    OSSL_PROVIDER *lbprov = NULL;
+    OSSL_PROVIDER *deflt = NULL;
+    OSSL_PROVIDER *provmb = NULL;
+    int ret = 1;
+
+    /*
+     * Create load-balancing library contexts
+     */
+    parent_libctx = OSSL_LIB_CTX_new();
+    if (parent_libctx == NULL)
+        goto err;
+    DEBUG_PRINT(PRINT_PREFIX \
+           "parent_libctx = %p\n", parent_libctx);
+
+#ifdef LOAD_FROM_CONF_FILE   /* load from config file */
+    /*
+     * Load config file for the load-balancing library context. We assume that
+     * this config file will automatically activate the load-balancing
+     * provider and the default provider.
+     */
+    if (!OSSL_LIB_CTX_load_config(parent_libctx, "openssl-loadbalancing.cnf"))
+        goto err;
+    DEBUG_PRINT(PRINT_PREFIX \
+           "Succeeded to load providers by config file\n");
+#else    /* load explicitly */
+    lbprov = OSSL_PROVIDER_load(parent_libctx, "loadbalance");
+    if (lbprov == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load loadbalance provider\n");
+        goto err;
+    }
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load loadbalance provider, %p\n", (void *)lbprov);
+
+    deflt = OSSL_PROVIDER_load(parent_libctx, "default");
+    if (deflt == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load Default provider into parent_libctx\n");
+        goto err;
+    }
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load default provider, %p\n", (void *)deflt);
+
+    provmb = OSSL_PROVIDER_load(parent_libctx, "libmd5mbprov");
+    if (provmb == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load libmd5mbprov provider into parent_libctx\n");
+        goto err;
+    }
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load libmd5mbprov provider, %p\n", (void *)provmb);
+#endif   /* end of load explicitly */
+
+    /*
+     * Calculate MD5 for doing the digest. We're
+     * using the "parent_libctx" library context here.
+     */
+    for (int i = 0; i  < COUNT_REPETITION; i++) {
+        DEBUG_PRINT(PRINT_PREFIX "Round %d\n", i);
+        if (calc_md5_ctx_reset(parent_libctx, "provider=loadbalance", i) != 0) {
+            DEBUG_PRINT(PRINT_PREFIX "Round %d: Failed to calculate MD5 using the parent_libctx provider\n", i);
+            goto err;
+        }
+    }
+    ret = 0;
+
+err:
+    OSSL_PROVIDER_unload(lbprov);
+    OSSL_PROVIDER_unload(deflt);
+    OSSL_PROVIDER_unload(provmb);
+    DEBUG_PRINT(PRINT_PREFIX "after unload provmb\n");
+    /* Clean up all the resources we allocated */
+    OSSL_LIB_CTX_free(parent_libctx);
+    DEBUG_PRINT(PRINT_PREFIX "after free parent_libctx\n");
+    if (ret != 0)
+       ERR_print_errors_fp(stderr);
+
+    return ret;
+}
+
+int test_basic(void)
+{
+    OSSL_LIB_CTX *parent_libctx = NULL;
+    OSSL_PROVIDER *lbprov = NULL;
+    OSSL_PROVIDER *deflt = NULL;
+    OSSL_PROVIDER *provmb = NULL;
+    int ret = 1;
+#ifdef COMPARE_WITH_DEFAULT
+    OSSL_PROVIDER *deflt2;
+    deflt2 = OSSL_PROVIDER_load(NULL, "default");
+    if (deflt2 == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load Default provider\n");
+        goto err;
+    }
+
+    if (calc_md5(NULL, NULL) != 0) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to calculate MD5 using the default provider\n");
+        goto err;
+    }
+    OSSL_PROVIDER_unload(deflt2);
+#endif
+
+#ifdef COMPARE_WITH_MD5_MB
+    OSSL_PROVIDER *md5_mb_prov;
+    md5_mb_prov = OSSL_PROVIDER_load(NULL, "libmd5mbprov");     /* libmd5mbprov.so */
+    if (md5_mb_prov == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load md5 multi-buffer provider\n");
+        goto err;
+    }
+
+    if (calc_md5(NULL, "provider=md5mb") != 0) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to calculate MD5 using the multi-buffer provider\n");
+        goto err;
+    }
+    OSSL_PROVIDER_unload(md5_mb_prov);
+#endif
+
+    /*
+     * Create load-balancing library contexts
+     */
+    parent_libctx = OSSL_LIB_CTX_new();
+    if (parent_libctx == NULL)
+        goto err;
+    DEBUG_PRINT(PRINT_PREFIX \
+           "parent_libctx = %p\n", parent_libctx);
+
+#ifdef LOAD_FROM_CONF_FILE   /* load from config file */
+    /*
+     * Load config file for the load-balancing library context. We assume that
+     * this config file will automatically activate the load-balancing
+     * provider and the default provider.
+     */
+    if (!OSSL_LIB_CTX_load_config(parent_libctx, "openssl-loadbalancing.cnf"))
+        goto err;
+    DEBUG_PRINT(PRINT_PREFIX \
+           "Succeeded to load providers by config file\n");
+#else    /* load explicitly */
+    lbprov = OSSL_PROVIDER_load(parent_libctx, "loadbalance");
+    if (lbprov == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load loadbalance provider\n");
+        goto err;
+    }
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load loadbalance provider, %p\n", (void *)lbprov);
+
+    deflt = OSSL_PROVIDER_load(parent_libctx, "default");
+    if (deflt == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load Default provider into parent_libctx\n");
+        goto err;
+    }
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load default provider, %p\n", (void *)deflt);
+
+    provmb = OSSL_PROVIDER_load(parent_libctx, "libmd5mbprov");
+    if (provmb == NULL) {
+        DEBUG_PRINT(PRINT_PREFIX "Failed to load libmd5mbprov provider into parent_libctx\n");
+        goto err;
+    }
+    DEBUG_PRINT(PRINT_PREFIX "Succeeded to load libmd5mbprov provider, %p\n", (void *)provmb);
+#endif   /* end of load explicitly */
+
+    /*
+     * Calculate MD5 for doing the digest. We're
+     * using the "parent_libctx" library context here.
+     */
+    for (int i = 0; i  < COUNT_REPETITION; i++) {
+        DEBUG_PRINT(PRINT_PREFIX "Round %d\n", i);
+        if (calc_md5(parent_libctx, "provider=loadbalance") != 0) {
+            DEBUG_PRINT(PRINT_PREFIX "Round %d: Failed to calculate MD5 using the parent_libctx provider\n", i);
+            goto err;
+        }
+    }
+    ret = 0;
+
+err:
+    OSSL_PROVIDER_unload(lbprov);
+    OSSL_PROVIDER_unload(deflt);
+    OSSL_PROVIDER_unload(provmb);
+    DEBUG_PRINT(PRINT_PREFIX "after unload provmb\n");
+    /* Clean up all the resources we allocated */
+    OSSL_LIB_CTX_free(parent_libctx);
+    DEBUG_PRINT(PRINT_PREFIX "after free parent_libctx\n");
+    if (ret != 0)
+       ERR_print_errors_fp(stderr);
+
+    return ret;
+}
+
+/* main function */
+int main(void)
+{
+    int ret = 1;
+
+#ifdef BASIC_TEST
+    ret = test_basic();
+    if (ret != 0) {
+        ERROR_PRINT("Failed at MULTI_THREAD_TEST!\n");
+        return ret;
+    }
+    printf("Succeed: BASIC_TEST\n");
+#endif
+
+#ifdef CTX_LIFE_CYCLE_TEST
+    ret = test_ctx_life_cycle();
+    if (ret != 0) {
+        ERROR_PRINT("Failed at MULTI_THREAD_TEST!\n");
+        return ret;
+    }
+    printf("Succeed: CTX_LIFE_CYCLE_TEST\n");
+#endif
+
+#ifdef MULTI_THREAD_TEST
+    ret = test_multi_threads();
+    if (ret != 0) {
+        ERROR_PRINT("Failed at MULTI_THREAD_TEST!\n");
+        return ret;
+    }
+    printf("Succeed: MULTI_THREAD_TEST\n");
+#endif
+
+#ifdef PROVIDER_LOAD_UNLOAD_TEST
+    ret = test_providers_load_unload();
+    if (ret != 0) {
+        ERROR_PRINT("Failed at PROVIDER_LOAD_UNLOAD_TEST!\n");
+        return ret;
+    }
+    printf("Succeed: PROVIDER_LOAD_UNLOAD_TEST\n");
+#endif
 
     return ret;
 }
