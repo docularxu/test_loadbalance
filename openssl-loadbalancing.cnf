@@ -11,15 +11,27 @@ openssl_conf = openssl_init
 [openssl_init]
 providers = providers
 
-[providers]
-default = default_conf
-loadbalance = loadbalance_conf
-libmd5mbprov = libmd5mbprov_conf
+#
+# Note: provider path needs to set in OPENSSL_MODULES, if it is not given as full path in
+#       the 'module=...' para of each provider's conf section.
+# Eg. OPENSSL_MODULES can be set either as part of the commandline, or as the environment:
+#     OPENSSL_MODULES=/home/guodong/osslinstall/lib/ossl-modules
+#
 
+[providers]
+# default = default_conf
+# loadbalance = loadbalance_conf
+# libmd5mbprov = libmd5mbprov_conf
+uadk_provider = uadk_provider_conf
+
+#
+# Refer to this define for settings of 'lb-strategy=.' in [loadbalance_conf] section
+#
 # #define LB_STRATEGY_ROUND_ROBIN         1
 # #define LB_STRATEGY_PRIORITY            2
 # #define LB_STRATEGY_FREE_BANDWIDTH      3
 # #define LB_STRATEGY_PACKET_SIZE         4
+#
 
 [loadbalance_conf]
 module = loadbalance.so
@@ -30,5 +42,14 @@ lb-strategy = 3
 activate = yes
 
 [libmd5mbprov_conf]
-module  = libmd5mbprov.so  # /docker-volume/md5_mb_provider.git/build/src/libmd5mbprov.so
+module = /home/guodong/osslinstall/lib/ossl-modules/libmd5mbprov.so  # /docker-volume/md5_mb_provider.git/build/src/libmd5mbprov.so
 activate = yes
+
+[uadk_provider_conf]
+module = /home/guodong/osslinstall/lib/uadk_provider.so
+activate = yes
+UADK_CMD_ENABLE_RSA_ENV = 1
+UADK_CMD_ENABLE_DH_ENV = 1
+UADK_CMD_ENABLE_CIPHER_ENV = 1
+UADK_CMD_ENABLE_DIGEST_ENV = 1
+UADK_CMD_ENABLE_ECC_ENV = 1
